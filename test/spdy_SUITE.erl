@@ -94,6 +94,7 @@ init_dispatch(Config) ->
 				{dir, ?config(static_dir, Config)}},
 			{"/echo/body", http_echo_body, []},
 			{"/chunked", http_chunked, []},
+			{"/loop_timeout", http_loop_timeout, []},
 			{"/", http_handler, []}
 		]}
 	]).
@@ -124,7 +125,8 @@ check_status(Config) ->
 		{200, nofin, "localhost", "/static/style.css"},
 		{400, fin, "bad-host", "/"},
 		{400, fin, "localhost", "bad-path"},
-		{404, fin, "localhost", "/this/path/does/not/exist"}
+		{404, fin, "localhost", "/this/path/does/not/exist"},
+		{500, fin, "localhost", "/loop_timeout"}
 	],
 	_ = [{Status, Fin, Host, Path} = begin
 		{IsFin, Ret, _} = quick_get(Pid, Host, Path),
