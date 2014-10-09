@@ -1040,6 +1040,54 @@ sys_suspend_resume(Config) ->
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
+sys_get_state(Config) ->
+	%% Ensure that cowboy_protocol can handle sys:get_state/1.
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/system"),
+	{cowboy_protocol, undefined, State} = sys:get_state(Pid),
+	state = element(1, State),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+sys_replace_state(Config) ->
+	%% Ensure that cowboy_protocol can handle sys:replace_state/2.
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/system"),
+	ok = sys:suspend(Pid),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	Replace = fun({cowboy_protocol, undefined, State}) ->
+		{cowboy_protocol, undefined, State}
+	end,
+	{cowboy_protocol, undefined, State} = sys:replace_state(Pid, Replace),
+	Get = fun({cowboy_protocol, Req, State2}) ->
+		{cowboy_protocol, Req, State2}
+	end,
+	{cowboy_protocol, undefined, State} = sys:replace_state(Pid, Get),
+	ok = sys:resume(Pid).
+
+sys_bad_replace_state(Config) ->
+	%% Ensure that cowboy_protocol doesn't allow bad state replaces with sys:replace_state/2.
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/system"),
+	Replace = fun({cowboy_protocool, undefined, State}) ->
+		{new_module, undefined, State}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace)),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	{Pid, Ref2} = system_gun_get(ConnPid, "/system"),
+	Replace2 = fun({cowboy_protocool, undefined, State}) ->
+			{cowboy_protocol, new_req, State}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace2)),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref2),
+	{Pid, Ref3} = system_gun_get(ConnPid, "/system"),
+	Replace3 = fun({cowboy_protocool, undefined, State}) ->
+		{cowboy_protocol, undefined, {State, extra}}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace3)),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref3),
+	ok.
+
 sys_change_code(Config) ->
 	%% Ensure that cowboy_protocol can handle sys:change_code/4.
 	ConnPid = gun_open(Config),

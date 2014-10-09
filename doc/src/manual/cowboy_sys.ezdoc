@@ -3,6 +3,13 @@
 The `cowboy_sys` behaviour defines the interface used to handle system
 messages in Cowboy middleware and sub protocol modules.
 
+:: Types
+
+: replace_state() = fun(({module(), cowboy_req:req() | undefined, any())
+	-> {module(), cowboy_req:req() | undefined, any())
+
+A replace state anonymous function.
+
 :: Callbacks
 
 : sys_continue(Req, State)
@@ -25,6 +32,59 @@ Types:
 Continue processsing after handling system messages.
 
 Please refer to the `cowboy_middleware` manual for possible return values.
+
+: sys_get_state(Req, State)
+	-> {ok, Req, State}
+	-> {Module, Req, ModuleState}
+
+Types:
+
+* Req = cowboy_req:req()
+* State = any()
+* Module = module()
+* ModuleState = any()
+
+Handle the `sys:get_state/{1,2}` system message.
+
+This function will be called when `sys:get_state/{1,2}` is called on
+the process. It should return the module, request object and state
+information.
+
+If `{ok, Req, State}` is returned, `sys:get_state/{1,2}` will return
+`{?MODULE, Req, State}`.
+
+If `{Module, Req, ModuleState}` is returned, `sys:get_state/{1,2} will
+return `{Module, Req, ModuleState}`.
+
+`sys_get_state/2` is idempotent and so can not change the `Req`. An
+error is raised by `sys:get_state/{1,2}` if the callback changes the
+request object.
+
+: sys_replace_state(Replace, Req, State)
+	-> {ok, Req, State}
+	-> {Module, Req, ModuleState, State}
+
+Types:
+
+* Replace = replace_state()
+* Req = cowboy_req:req()
+* State = any()
+* Module = module()
+* ModuleState = any()
+
+Handle the `sys:replace_state/{2,3}` system message.
+
+This function will be called when `sys:replace_state/{2,3}` is called on the
+process. It should apply the replace state fun to the same module, request
+object and state as the `sys_get_state/2` callback.
+
+If `{ok, Req, State}` is returned, `sys:replace_state/{2,3}` will return
+`{?MODULE, Req, State}` and the state of the module (`?MODULE`) will be replaced
+with `State`.
+
+If `{Module, Req, ModuleState, State}`, is returned `sys:replace_state/{2,3}
+will return `{Module, Req, ModuleState}` and the state of the module (`?MODULE`)
+will be replaced with `State`.
 
 : sys_terminate(Reason, Req, State)
 	-> no_return().

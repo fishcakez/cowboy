@@ -18,16 +18,27 @@
 
 % System.
 -export([system_continue/3]).
+-export([system_get_state/1]).
+-export([system_replace_state/2]).
 -export([system_code_change/4]).
 -export([system_terminate/4]).
 
 -type state() :: {module(), cowboy_req:req() | undefined, any()}.
+-type replace_state() :: fun((state()) -> state()).
+-export_type([replace_state/0]).
 
 -callback sys_continue(cowboy_req:req() | undefined, any())
 	-> {ok, cowboy_req:req(), cowboy_middleware:env()}
 	| {suspend, module(), atom(), [any()]}
 	| {system, {pid(), any()}, any(), module(), cowboy_req:req(), any()}
 	| {halt, cowboy_req:req()}.
+-callback sys_get_state(cowboy_req:req() | undefined, any())
+	-> {ok, cowboy_req:req() | undefined, module(), any()}
+	| {module(), cowboy_req:req() | undefined, any()}.
+-callback sys_replace_state(replace_state(), cowboy_req:req() | undefined,
+		any())
+	-> {ok, cowboy_req:req() | undefined, module(), any()}
+	| {module(), cowboy_req:req() | undefined, any(), any()}.
 -callback sys_terminate(pid(), cowboy_req:req(), any()) -> no_return().
 
 %% API.
@@ -49,6 +60,38 @@ handle_msg(Msg, From, Parent, Mod, Req, ModState) ->
 system_continue(_Parent, Dbg, {Mod, Req, ModState}) ->
 	 _ = put('$dbg', Dbg),
 	continue(Mod, sys_continue, [Req, ModState]).
+
+-spec system_get_state(state()) -> {ok, state()}.
+system_get_state({Mod, Req, ModState}) ->
+	case Mod:sys_get_state(Req, ModState) of
+		% sys_get_state/2 must not change Req object as changes will be lost.
+		{ok, Req, ModState2} ->
+			{ok, {Mod, Req, ModState2}};
+		{Callback, Req, CallbackState} when is_atom(Callback) ->
+			{ok, {Callback, Req, CallbackState}}
+	end.
+
+-spec system_replace_state(replace_state(), state())
+	-> {ok, {module(), cowboy_req:req() | undefined, any()}, state()}.
+system_replace_state(Replace, {Mod, Req, ModState}) ->
+	case Mod:sys_replace_state(Replace, Req, ModState) of
+		{ok, undefined, ModState2} ->
+			State = {Mod, undefined, ModState2},
+			{ok, State, State};
+		{ok, Req2, ModState2} ->
+			% Check Req2 is valid.
+			_ = cowboy_req:get(pid, Req2),
+			State = {Mod, Req2, ModState2},
+			{ok, State, State};
+		{Callback, undefined, CallbackState, ModState2}
+				when is_atom(Callback) ->
+			{ok, {Callback, undefined, CallbackState},
+				{Mod, undefined, ModState2}};
+		{Callback, Req2, CallbackState, ModState2} when is_atom(Callback) ->
+			% Check Req2 is valid.
+			_ = cowboy_req:get(pid, Req2),
+			{ok, {Callback, Req2, CallbackState}, {Mod, Req2, ModState2}}
+	end.
 
 -spec system_code_change(state(), module(), any(), any()) -> {ok, state()}.
 system_code_change(State, _Module, _OldVsn, _Extra) ->

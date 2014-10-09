@@ -21,6 +21,8 @@
 -export([upgrade/6]).
 -export([handler_loop/4]).
 -export([sys_continue/2]).
+-export([sys_get_state/2]).
+-export([sys_replace_state/3]).
 -export([sys_terminate/3]).
 
 -type close_code() :: 1000..4999.
@@ -786,6 +788,18 @@ sys_continue(Req, {State, HandlerState,
 			{Opcode, Len, MaskKey, Unmasked, UnmaskedLen, Rsv}}) ->
 	websocket_payload_loop(State, Req, HandlerState, Opcode, Len, MaskKey,
 		Unmasked, UnmaskedLen, Rsv).
+
+-spec sys_get_state(cowboy_req:req(), misc())
+	-> {module(), cowboy_req:req(), any()}.
+sys_get_state(Req, {#state{handler=Handler}, HandlerState, _}) ->
+	{Handler, Req, HandlerState}.
+
+-spec sys_replace_state(cowboy_sys:replace_state(), cowboy_req:req(), misc())
+	-> {module(), cowboy_req:req(), any(), misc()}.
+sys_replace_state(Replace, Req,
+		{State=#state{handler=Handler}, HandlerState, Args}) ->
+	{Handler, Req2, HandlerState2} = Replace({Handler, Req, HandlerState}),
+	{Handler, Req2, HandlerState2, {State, HandlerState2, Args}}.
 
 -spec sys_terminate(any(), Req, misc()) -> no_return()
 	when Req::cowboy_req:req().

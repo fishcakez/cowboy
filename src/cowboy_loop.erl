@@ -28,6 +28,8 @@
 -export([upgrade/6]).
 -export([loop/4]).
 -export([sys_continue/2]).
+-export([sys_get_state/2]).
+-export([sys_replace_state/3]).
 -export([sys_terminate/3]).
 
 -callback init(Req, any())
@@ -228,6 +230,18 @@ flush_timeouts() ->
 	when Req::cowboy_req:req().
 sys_continue(Req, {State, Handler, HandlerState}) ->
 	loop(Req, State, Handler, HandlerState).
+
+-spec sys_get_state(cowboy_req:req(), {#state{}, module(), any()})
+	-> {module(), cowboy_req:req(), any()}.
+sys_get_state(Req, {_State, Handler, HandlerState}) ->
+	{Handler, Req, HandlerState}.
+
+-spec sys_replace_state(cowboy_sys:replace_state(), cowboy_req:req(),
+		{#state{}, module(), any()})
+	-> {module(), cowboy_req:req(), any(), {#state{}, module(), any()}}.
+sys_replace_state(Replace, Req, {State, Handler, HandlerState}) ->
+	{Handler, Req2, HandlerState2} = Replace({Handler, Req, HandlerState}),
+	{Handler, Req2, HandlerState2, {State, Handler, HandlerState2}}.
 
 -spec sys_terminate(any(), Req, {#state{}, module(), any()}) -> no_return()
 	when Req::cowboy_req:req().

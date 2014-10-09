@@ -64,6 +64,45 @@ hibernate_suspend_resume(Config) ->
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
+get_state(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:get_state/1"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
+	{system_sp, Req, state} = sys:get_state(Pid),
+	[{_, _} | _] = cowboy_req:to_list(Req),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+replace_state(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:replace_state/2"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
+	Replace = fun({system_sp, Req, state}) ->
+		Req2 = cowboy_req:set_meta(replaced, true, Req),
+		{system_sp, Req2, new_state}
+	end,
+	{system_sp, Req3, new_state} = sys:replace_state(Pid, Replace),
+	true = cowboy_req:meta(replaced, Req3, false),
+	Get = fun(FullState) -> FullState end,
+	{system_sp, Req3, new_state} = sys:replace_state(Pid, Get),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+bad_replace_state(Config) ->
+	doc("Ensure that a sub_protocol/middleware doesn't allow bad state replaces with sys:replace_state/2"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
+	Replace = fun({_, Req, state}) ->
+		{new_module, Req, new_state}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace)),
+	Replace2 = fun({Mod, _Req, State}) ->
+			{Mod, not_req, State}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace2)),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
 change_code(Config) ->
 	doc("Ensure that a sub_protocol/middleware can handle sys:change_code/4"),
 	ConnPid = gun_open(Config),

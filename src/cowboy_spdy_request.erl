@@ -23,6 +23,8 @@
 
 %% System.
 -export([sys_continue/2]).
+-export([sys_get_state/2]).
+-export([sys_replace_state/3]).
 -export([sys_terminate/3]).
 
 -spec spawn_link(cowboy_spdy:socket(), {inet:ip_address(), inet:port_number()},
@@ -89,6 +91,28 @@ resume(Parent, Tail, Module, Fun, Args) ->
 	-> no_return().
 sys_continue(Req, {Parent, Tail, Module, ModState}) ->
 	resume(Parent, Tail, Module, sys_continue, [Req, ModState]).
+
+-spec sys_get_state(cowboy_req:req(), {pid(), [module()], module(), any()})
+	-> {module(), cowboy_req:req(), any()}.
+sys_get_state(Req, {_Parent, _Tail, Module, ModState}) ->
+	case Module:sys_get_state(Req, ModState) of
+		{ok, Req2, ModState2} ->
+			{Module, Req2, ModState2};
+		{Callback, Req2, CallbackState} when is_atom(Callback) ->
+			{Callback, Req2, CallbackState}
+	end.
+
+-spec sys_replace_state(cowboy_sys:replace_state(), cowboy_req:req(),
+		{pid(), [module()], module(), any()})
+	-> {module(), cowboy_req:req(), any(),
+	{pid(), [module()], module(), any()}}.
+sys_replace_state(Replace, Req, {Parent, Tail, Module, ModState}) ->
+	case Module:sys_replace_state(Replace, Req, ModState) of
+		{ok, Req2, ModState2} ->
+			{Module, Req2, ModState2, {Parent, Tail, Module, ModState2}};
+		{Callback, Req2, CallbackState, ModState2} when is_atom(Callback) ->
+			{Callback, Req2, CallbackState, {Parent, Tail, Module, ModState2}}
+	end.
 
 -spec sys_terminate(any(), cowboy_req:req(),
 		{pid(), [module()], module(), any()})

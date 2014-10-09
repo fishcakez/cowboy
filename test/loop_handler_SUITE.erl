@@ -96,6 +96,45 @@ sys_suspend_resume(Config) ->
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
+sys_get_state(Config) ->
+	doc("Ensure that a loop handler can handle sys:get_state/1"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	{loop_system_h, Req, state} = sys:get_state(Pid),
+	[{_, _} | _] = cowboy_req:to_list(Req),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+sys_replace_state(Config) ->
+	doc("Ensure that a loop handler can handle sys:replace_state/2"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	Replace = fun({loop_system_h, Req, state}) ->
+		Req2 = cowboy_req:set_meta(replaced, true, Req),
+		{loop_system_h, Req2, new_state}
+	end,
+	{loop_system_h, Req3, new_state} = sys:replace_state(Pid, Replace),
+	true = cowboy_req:meta(replaced, Req3, false),
+	Get = fun(FullState) -> FullState end,
+	{loop_system_h, Req3, new_state} = sys:replace_state(Pid, Get),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+bad_sys_replace_state(Config) ->
+	doc("Ensure that a loop handler doesn't allow bad state replaces with sys:replace_state/2"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	Replace = fun({_, Req, state}) ->
+		{new_module, Req, new_state}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace)),
+	Replace2 = fun({Mod, _Req, State}) ->
+			{Mod, not_req, State}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace2)),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
 sys_change_code(Config) ->
 	doc("Ensure that a loop handler can handle sys:change_code/4"),
 	ConnPid = gun_open(Config),

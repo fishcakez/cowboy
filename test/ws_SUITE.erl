@@ -661,6 +661,45 @@ sys_suspend_resume(Config) ->
 	{error, closed} = gen_tcp:recv(Socket, 0, 6000),
 	ok.
 
+sys_get_state(Config) ->
+	%% Ensure that a ws handler can handle sys:get_state/1.
+	{Pid, Socket} = system_ws_connect("/ws_system", Config),
+	{ws_system, Req, state} = sys:get_state(Pid),
+	[{_, _} | _] = cowboy_req:to_list(Req),
+	{ok, << 1:1, 0:3, 8:4, 0:1, 2:7, 1000:16 >>} = gen_tcp:recv(Socket, 0, 6000),
+	{error, closed} = gen_tcp:recv(Socket, 0, 6000),
+	ok.
+
+sys_replace_state(Config) ->
+	%% Ensure that a ws handler can handle sys:replace_state/1.
+	{Pid, Socket} = system_ws_connect("/ws_system", Config),
+	Replace = fun({ws_system, Req, state}) ->
+		Req2 = cowboy_req:set_meta(replaced, true, Req),
+		{ws_system, Req2, new_state}
+	end,
+	{ws_system, Req3, new_state} = sys:replace_state(Pid, Replace),
+	true = cowboy_req:meta(replaced, Req3, false),
+	Get = fun(FullState) -> FullState end,
+	{ws_system, Req3, new_state} = sys:replace_state(Pid, Get),
+	{ok, << 1:1, 0:3, 8:4, 0:1, 2:7, 1000:16 >>} = gen_tcp:recv(Socket, 0, 6000),
+	{error, closed} = gen_tcp:recv(Socket, 0, 6000),
+	ok.
+
+sys_bad_replace_state(Config) ->
+	%% Ensure that a ws handler doesn't allow bad state places with sys:replace_state/1.
+	{Pid, Socket} = system_ws_connect("/ws_system", Config),
+	Replace = fun({_, Req, state}) ->
+		{new_module, Req, new_state}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace)),
+	Replace2 = fun({Mod, _Req, State}) ->
+			{Mod, not_req, State}
+	end,
+	{'EXIT', {{callback_failed, _, _}, _}} = (catch sys:replace_state(Pid, Replace2)),
+	{ok, << 1:1, 0:3, 8:4, 0:1, 2:7, 1000:16 >>} = gen_tcp:recv(Socket, 0, 6000),
+	{error, closed} = gen_tcp:recv(Socket, 0, 6000),
+	ok.
+
 sys_change_code(Config) ->
 	%% Ensure that a ws handler can handle sys:change_code/4.
 	{Pid, Socket} = system_ws_connect("/ws_system", Config),

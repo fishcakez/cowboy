@@ -26,6 +26,8 @@
 
 %% System.
 -export([sys_continue/2]).
+-export([sys_get_state/2]).
+-export([sys_replace_state/3]).
 -export([sys_terminate/3]).
 
 -type opts() :: [{compress, boolean()}
@@ -524,6 +526,40 @@ sys_continue(undefined, {State, Buffer}) ->
 	next_request(Buffer, State);
 sys_continue(Req, {State, Tail, Module, ModState}) ->
 	resume(State, Tail, Module, sys_continue, [Req, ModState]).
+
+-spec sys_get_state(undefined, {#state{}, binary()})
+	-> {ok, undefined, #state{}};
+	(cowboy_req:req(), {#state{}, [module()], module(), any()})
+	-> {module(), cowboy_req:req(), any()}.
+sys_get_state(undefined, {State, _Buffer}) ->
+	% Don't include Buffer in state.
+	{ok, undefined, State};
+sys_get_state(Req, {_State, _Tail, Module, ModState}) ->
+	case Module:sys_get_state(Req, ModState) of
+		{ok, Req2, ModState2} ->
+			{Module, Req2, ModState2};
+		{Callback, Req2, CallbackState} when is_atom(Callback) ->
+			{Callback, Req2, CallbackState}
+	end.
+
+-spec sys_replace_state(cowboy_sys:replace_state(), undefined,
+		{#state{}, binary()})
+	-> {?MODULE, undefined, #state{}, {#state{}, binary()}};
+	(cowboy_sys:replace_state(), cowboy_req:req(),
+		{#state{}, [module()], module(), any()})
+	-> {module(), cowboy_req:req(), any(),
+	{#state{}, [module()], module(), any()}}.
+sys_replace_state(Replace, Req, {State, Buffer}) ->
+	% Don't let replace fun see/alter Buffer.
+	{?MODULE, Req2, State2=#state{}} = Replace({?MODULE, Req, State}),
+	{ok, Req2, {State2, Buffer}};
+sys_replace_state(Replace, Req, {State, Tail, Module, ModState}) ->
+	case Module:sys_replace_state(Replace, Req, ModState) of
+		{ok, Req2, ModState2} ->
+			{Module, Req2, ModState2, {State, Tail, Module, ModState2}};
+		{Callback, Req2, CallbackState, ModState2} when is_atom(Callback) ->
+			{Callback, Req2, CallbackState, {State, Tail, Module, ModState2}}
+	end.
 
 -spec sys_terminate(any(), undefined, {#state{}, binary()})
 	-> no_return();

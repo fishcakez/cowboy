@@ -115,3 +115,65 @@ termination or clean up):
 sys_terminate(Reason, _Req, _ModuleState) ->
 	exit(Reason).
 ```
+
+The third callback is `sys_get_state/2`. This is called when the
+process should provide information about its state due to a
+`sys:get_state/{1,2}` call. The middleware, or sub protocol, may choose
+to return information about itself or a callback (handler) module. In
+the former case it should return `{ok, Req, ModuleState}`:
+
+``` erlang
+sys_get_state(Req, ModuleState) ->
+	{ok, Req, ModuleState}.
+```
+
+This will cause `sys:get_state/{1,2}` to return
+`{?MODULE, Req, ModuleState}`.
+
+To return the state of a callback module, or a module other than
+?MODULE, it should return `{Callback, Req, CallbackState}`:
+
+``` erlang
+sys_get_state(Req, #state{mod=Callback, state=CallbackState}) ->
+	{Callback, Req, CallbackState}.
+```
+
+This will cause `sys:get_state/{1,2}` to return
+`{Callback, Req, CallbackState}.
+
+In the case of `cowboy_loop` and `cowboy_websocket` the handler's module
+and state are returned, and not the internal state of the sub protocol.
+
+Note that `sys_get_state` is an idempotent callback and so can not
+change the `Req` object or module state. If the callback changes the
+`Req` object `sys:get_state/{1,2}` will raise an error.
+
+The fourth callback is `sys_replace_state/3`. This is called when the
+process should provide information about its state due to a
+`sys:replace_state/{2,3}` call. The middleware, or sub protocol, may
+choose to return replace the state of itself or a callback (handler)
+module. In the former case it should return `{ok, Req, ModuleState}`:
+
+``` erlang
+sys_replace_state(Replace, Req, ModuleState) ->
+	{?MODULE, Req2, ModuleState2} = Replace({?MODULE, Req, ModuleState}),
+	{ok, Req2, ModuleState2}.
+```
+
+This will cause `sys:replace_state/{2,3}` to return
+`{?MODULE, Req2, ModuleState2}`.
+
+To return the state of a callback module, or a module other other than
+?MODULE, it should return `{Callback, Req, CallbackState, ModuleState}`:
+
+``` erlang
+sys_replace_state(Req, ModuleState=#state{mod=Callback, state=CallbackState}) ->
+	{Callback, Req2, CallbackState2} = Replace({Callback, Req, CallbackState}),
+	{Callback, Req2, CallbackState2, ModuleState#state{state=CallbackState}}.
+```
+
+This will cause `sys:replace_state/{2,3}` to return
+`{Callback, Req2, CallbackState2}.
+
+In the case of `cowboy_loop` and `cowboy_websocket` the handler's module
+and state are replaced, and not the internal state of the sub protocol.
