@@ -1,0 +1,61 @@
+::: Debugging Cowboy processes
+
+OTP processes can be debugged live using the `sys` module or a tool
+that wraps `sys`, such as `observer` or `recon`. These tools can
+inspect, or replace, the current state of a process that handles system
+messages. This chapter will only cover the functions in the `sys` module
+that can be used to debug Cowboy processes that handle requests. All
+these functions have an optional last argument, which is a timeout. If a
+reply is not received within the timeout the function will raise an
+exception. This is partially useful when a process may block for a
+significant period of time, as can be the case with Cowboy handlers.
+
+:: Getting the state of a process
+
+`sys:get_state/{1,2}` gets the current state of an OTP process:
+
+``` erlang
+1> sys:get_state(Pid).
+```
+
+For all Cowboy processes that handle requests the returned value will
+be of the form: `{Module, Req, ModuleState}`.
+
+* `Module` the active protocol, middleware, sub_protocol or handler.
+* `Req` will be the current request object or the atom `undefined`.
+* `ModuleState` will be the state of the current module `Module`.
+
+In the cases of `cowboy_loop` and `cowboy_websocket` the handler's module
+and state are returned, and not the internal state of the sub protocol.
+
+:: Replacing the state of a process
+
+`sys:replace_state/{2,3}` replaces the current state of a process using
+a 1-arity fun, and returns the new state.
+
+``` erlang
+1> sys:replace_state(Pid, fun(State) -> State end).
+```
+
+For all Cowboy processes that handle requests the state passed, and
+returned, by the replace fun is of the form:
+`{Module, Req, ModuleState}`. The variables represent the same values as
+those returned by `sys:get_state/{1,2}`. Similarly in the cases of
+`cowboy_loop` and `cowboy_websocket` the handler's module and state are
+returned, and not the internal state of the sub protocol.
+
+As a Cowboy request process will only be running one of many possible
+modules the `Module` term can be pattern matched on to only replace
+the state if a particular module is active:
+
+``` erlang
+1> Replace = fun({handler, Req, _}) -> {handler, Req, new_state};
+	(Other) -> Other
+end,
+1> sys:replace_state(Pid, Replace).
+```
+
+Note it is not possible to change the module using
+`sys:replace_state/{2,3}`. In other cases extra validation may be done,
+for example the `Req` must be the atom `undefined` when `Module` is
+`cowboy_protocol`.

@@ -1,4 +1,4 @@
-%% Copyright (c) 2011-2014, Loïc Hoguin <essen@ninenines.eu>
+%% Copyright (c) 2014, James Fish <james@fishcakez.com>
 %%
 %% Permission to use, copy, modify, and/or distribute this software for any
 %% purpose with or without fee is hereby granted, provided that the above
@@ -12,8 +12,9 @@
 %% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 %% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
--module(loop_handler_SUITE).
+-module(sys_SUITE).
 -compile(export_all).
+-compile({no_auto_import, [statistics/1]}).
 
 -import(cowboy_test, [config/2]).
 -import(cowboy_test, [doc/1]).
@@ -36,94 +37,61 @@ end_per_group(Name, _) ->
 %% Dispatch configuration.
 
 init_dispatch(_) ->
-	cowboy_router:compile([{'_', [
-		{"/long_polling", long_polling_h, []},
-		{"/loop_body", loop_handler_body_h, []},
-		{"/loop_timeout", loop_handler_timeout_h, []},
-		{"/loop_system", loop_system_h, []}
-	]}]).
+	cowboy_router:compile([
+		{'_', [
+			{"/hibernate", system_h, {system_sp, hibernate}},
+			{"/", system_h, {system_sp, run}}
+		]}
+	]).
 
 %% Tests.
 
-long_polling(Config) ->
-	doc("Simple long-polling."),
+suspend_resume(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:suspend/1 and sys:resume/1"),
 	ConnPid = gun_open(Config),
-	Ref = gun:get(ConnPid, "/long_polling"),
-	{response, fin, 102, _} = gun:await(ConnPid, Ref),
-	ok.
-
-long_polling_body(Config) ->
-	doc("Long-polling with a body that falls within the configurable limits."),
-	ConnPid = gun_open(Config),
-	Ref = gun:post(ConnPid, "/long_polling", [], << 0:5000/unit:8 >>),
-	{response, fin, 102, _} = gun:await(ConnPid, Ref),
-	ok.
-
-long_polling_body_too_large(Config) ->
-	doc("Long-polling with a body that exceeds the configurable limits."),
-	ConnPid = gun_open(Config),
-	Ref = gun:post(ConnPid, "/long_polling", [], << 0:100000/unit:8 >>),
-	{response, fin, 500, _} = gun:await(ConnPid, Ref),
-	ok.
-
-long_polling_pipeline(Config) ->
-	doc("Pipeline of long-polling calls."),
-	ConnPid = gun_open(Config),
-	Refs = [gun:get(ConnPid, "/long_polling") || _ <- lists:seq(1, 2)],
-	_ = [{response, fin, 102, _} = gun:await(ConnPid, Ref) || Ref <- Refs],
-	ok.
-
-loop_body(Config) ->
-	doc("Check that a loop handler can read the request body in info/3."),
-	ConnPid = gun_open(Config),
-	Ref = gun:post(ConnPid, "/loop_body", [], << 0:100000/unit:8 >>),
-	{response, fin, 200, _} = gun:await(ConnPid, Ref),
-	ok.
-
-loop_timeout(Config) ->
-	doc("Ensure that the loop handler timeout results in a 204 response."),
-	ConnPid = gun_open(Config),
-	Ref = gun:get(ConnPid, "/loop_timeout"),
-	{response, fin, 204, _} = gun:await(ConnPid, Ref),
-	ok.
-
-sys_suspend_resume(Config) ->
-	doc("Ensure that a loop handler can handle sys:suspend/1 and sys:resume/1"),
-	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
 	ok = sys:suspend(Pid),
 	ok = sys:resume(Pid),
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
-sys_get_state(Config) ->
-	doc("Ensure that a loop handler can handle sys:get_state/1"),
+hibernate_suspend_resume(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:suspend/1 and sys:resume/1 after hibernation"),
 	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
-	{loop_system_h, Req, state} = sys:get_state(Pid),
+	{Pid, Ref} = system_gun_get(ConnPid, "/hibernate"),
+	ok = sys:suspend(Pid),
+	ok = sys:resume(Pid),
+	{response, fin, 204, _} = gun:await(ConnPid, Ref),
+	ok.
+
+get_state(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:get_state/1"),
+	ConnPid = gun_open(Config),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
+	{system_sp, Req, state} = sys:get_state(Pid),
 	[{_, _} | _] = cowboy_req:to_list(Req),
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
 sys_replace_state(Config) ->
-	doc("Ensure that a loop handler can handle sys:replace_state/2"),
+	doc("Ensure that a sub_protocol/middleware can handle sys:replace_state/2"),
 	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
-	Replace = fun({loop_system_h, Req, state}) ->
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
+	Replace = fun({system_sp, Req, state}) ->
 		Req2 = cowboy_req:set_meta(replaced, true, Req),
-		{loop_system_h, Req2, new_state}
+		{system_sp, Req2, new_state}
 	end,
-	{loop_system_h, Req3, new_state} = sys:replace_state(Pid, Replace),
+	{system_sp, Req3, new_state} = sys:replace_state(Pid, Replace),
 	true = cowboy_req:meta(replaced, Req3, false),
 	Get = fun(FullState) -> FullState end,
-	{loop_system_h, Req3, new_state} = sys:replace_state(Pid, Get),
+	{system_sp, Req3, new_state} = sys:replace_state(Pid, Get),
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
 bad_sys_replace_state(Config) ->
-	doc("Ensure that a loop handler doesn't allow bad state replaces with sys:replace_state/2"),
+	doc("Ensure that a sub_protocol/middleware doesn't allow bad state replaces with sys:replace_state/2"),
 	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
 	Replace = fun({_, Req, state}) ->
 		{new_module, Req, new_state}
 	end,
@@ -135,20 +103,20 @@ bad_sys_replace_state(Config) ->
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
-sys_change_code(Config) ->
-	doc("Ensure that a loop handler can handle sys:change_code/4"),
+change_code(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:change_code/4"),
 	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
 	ok = sys:suspend(Pid),
 	ok = sys:change_code(Pid, ?MODULE, undefined, undefined),
 	ok = sys:resume(Pid),
 	{response, fin, 204, _} = gun:await(ConnPid, Ref),
 	ok.
 
-sys_statistics(Config) ->
-	doc("Ensure that a loop handler can handle sys:statistics/2"),
+statistics(Config) ->
+	doc("Ensure that a sub_protocol/middleware can handle sys:statistics/2"),
 	ConnPid = gun_open(Config),
-	{Pid, Ref} = system_gun_get(ConnPid, "/loop_system"),
+	{Pid, Ref} = system_gun_get(ConnPid, "/"),
 	ok = sys:statistics(Pid, true),
 	{ok, [{_,_} | _]} = sys:statistics(Pid, get),
 	ok = sys:statistics(Pid, false),
